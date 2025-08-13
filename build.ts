@@ -33,7 +33,8 @@ Example:
   process.exit(0);
 }
 
-const toCamelCase = (str: string): string => str.replace(/-([a-z])/g, g => g[1].toUpperCase());
+const toCamelCase = (str: string): string =>
+  str.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
 
 const parseValue = (value: string): any => {
   if (value === "true") return true;
@@ -42,7 +43,7 @@ const parseValue = (value: string): any => {
   if (/^\d+$/.test(value)) return parseInt(value, 10);
   if (/^\d*\.\d+$/.test(value)) return parseFloat(value);
 
-  if (value.includes(",")) return value.split(",").map(v => v.trim());
+  if (value.includes(",")) return value.split(",").map((v) => v.trim());
 
   return value;
 };
@@ -62,7 +63,10 @@ function parseArgs(): Partial<Bun.BuildConfig> {
       continue;
     }
 
-    if (!arg.includes("=") && (i === args.length - 1 || args[i + 1]?.startsWith("--"))) {
+    if (
+      !arg.includes("=") &&
+      (i === args.length - 1 || args[i + 1]?.startsWith("--"))
+    ) {
       const key = toCamelCase(arg.slice(2));
       config[key] = true;
       continue;
@@ -118,9 +122,44 @@ if (existsSync(outdir)) {
 const start = performance.now();
 
 const entrypoints = [...new Bun.Glob("**.html").scanSync("src")]
-  .map(a => path.resolve("src", a))
-  .filter(dir => !dir.includes("node_modules"));
-console.log(`📄 Found ${entrypoints.length} HTML ${entrypoints.length === 1 ? "file" : "files"} to process\n`);
+  .map((a) => path.resolve("src", a))
+  .filter((dir) => !dir.includes("node_modules"));
+console.log(
+  `📄 Found ${entrypoints.length} HTML ${
+    entrypoints.length === 1 ? "file" : "files"
+  } to process\n`
+);
+
+// Load environment variables for build-time injection
+const envVars: Record<string, string> = {};
+
+// Get environment variables that should be available in the frontend
+const frontendEnvKeys = [
+  "NODE_ENV",
+  "API_URL",
+  "VITE_API_URL",
+  "REACT_APP_API_URL",
+  "PUBLIC_API_URL",
+  "VITE_ENABLE_DEBUG",
+];
+
+// Add environment variables to build defines
+frontendEnvKeys.forEach((key) => {
+  const value = process.env[key];
+  if (value !== undefined) {
+    envVars[`process.env.${key}`] = JSON.stringify(value);
+  }
+});
+
+// Always set NODE_ENV for production builds
+envVars["process.env.NODE_ENV"] = JSON.stringify("production");
+
+console.log(
+  `🔧 Injecting environment variables:`,
+  Object.keys(envVars)
+    .map((k) => k.replace("process.env.", ""))
+    .join(", ")
+);
 
 const result = await Bun.build({
   entrypoints,
@@ -129,15 +168,13 @@ const result = await Bun.build({
   minify: true,
   target: "browser",
   sourcemap: "linked",
-  define: {
-    "process.env.NODE_ENV": JSON.stringify("production"),
-  },
+  define: envVars,
   ...cliConfig,
 });
 
 const end = performance.now();
 
-const outputTable = result.outputs.map(output => ({
+const outputTable = result.outputs.map((output) => ({
   File: path.relative(process.cwd(), output.path),
   Type: output.kind,
   Size: formatFileSize(output.size),
